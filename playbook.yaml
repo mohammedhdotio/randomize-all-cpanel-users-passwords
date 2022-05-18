@@ -1,0 +1,42 @@
+---
+- name: Randomize all cPanel users passwords and save them locally
+  hosts: cpanel_nodes
+  become: yes
+  vars:
+  - passwordLength: 32
+  - pathToPasswordFile: ./
+  tasks:
+  - name: install pwgen
+    yum:
+      name: pwgen
+      state: present
+
+  - name: get all cpanel users
+    shell: "ls /var/cpanel/users | grep -v nobody"
+    register: cpanelUsers
+
+  - name: generate random password for each user
+    command: "pwgen {{ passwordLength }} 1"
+    register: randomPasswords
+    with_items: "{{ cpanelUsers['stdout_lines'] }}"
+
+  - name: change password of users
+    user:
+      name: " {{ item.item }} "
+      password: " {{ item.stdout  | password_hash('sha512') }} "
+    with_items: " {{ randomPasswords['results'] }} "
+
+  - name: remove existing password file
+    file:
+      path: "{{ pathToPasswordFile }}/{{inventory_hostname}}-passwords"
+      state: absent
+
+  - name: save passwords in our local ansible controller
+    lineinfile:
+      dest: "{{ pathToPasswordFile }}/{{inventory_hostname}}-passwords"
+      mode: "0600"
+      line: "{{ item.item }}:{{ item.stdout }}"
+      create: true
+    with_items: " {{ randomPasswords['results'] }} "
+    delegate_to: localhost
+    become: no
